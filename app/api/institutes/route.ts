@@ -1,43 +1,15 @@
 import { NextResponse } from 'next/server';
 
-// In-memory / serverless demo state for Vercel deployment
-const SEED_INSTITUTES = [
-  {
-    id: 'apex-science-academy-kota',
-    name: 'Apex Science Academy',
-    city: 'Kota, Rajasthan',
-    exams: ['JEE', 'NEET'],
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'pioneer-medical-delhi',
-    name: 'Pioneer Medical Institute',
-    city: 'New Delhi, DL',
-    exams: ['NEET'],
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'chronicle-ias-hub-delhi',
-    name: 'Chronicle IAS Hub',
-    city: 'Old Rajinder Nagar, DL',
-    exams: ['UPSC'],
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'resonance-tech-hyderabad',
-    name: 'Resonance Tech Forum',
-    city: 'Hyderabad, Telangana',
-    exams: ['JEE', 'GATE'],
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'zenith-academy-pune',
-    name: 'Zenith Academy for Competitive Exams',
-    city: 'Pune, Maharashtra',
-    exams: ['JEE', 'NEET'],
-    created_at: new Date().toISOString(),
-  },
-];
+// In-memory real dynamic store for up to 4 universities (Starts empty with zero demo data)
+let registeredInstitutes: Array<{
+  id: string;
+  name: string;
+  city: string;
+  exams: string[];
+  created_at: string;
+}> = [];
+
+const MAX_UNIVERSITIES = 4;
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -45,7 +17,7 @@ export async function GET(request: Request) {
   const exam = searchParams.get('exam')?.toLowerCase();
   const city = searchParams.get('city')?.toLowerCase();
 
-  let results = [...SEED_INSTITUTES];
+  let results = [...registeredInstitutes];
 
   if (query) {
     results = results.filter(
@@ -66,4 +38,54 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json(results);
+}
+
+export async function POST(request: Request) {
+  try {
+    if (registeredInstitutes.length >= MAX_UNIVERSITIES) {
+      return NextResponse.json(
+        {
+          detail: `Maximum university capacity reached (${MAX_UNIVERSITIES} universities limit). No more universities can be added.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const body = await request.json();
+    const { name, city, exams } = body;
+
+    if (!name || !city) {
+      return NextResponse.json(
+        { detail: 'University name and city are required.' },
+        { status: 400 }
+      );
+    }
+
+    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `univ-${Date.now()}`;
+
+    // Check duplicate
+    if (registeredInstitutes.some((inst) => inst.id === id || inst.name.toLowerCase() === name.toLowerCase())) {
+      return NextResponse.json(
+        { detail: 'A university with this name is already registered.' },
+        { status: 400 }
+      );
+    }
+
+    const newInstitute = {
+      id,
+      name: name.trim(),
+      city: city.trim(),
+      exams: Array.isArray(exams) && exams.length > 0 ? exams : ['General Academic', 'Entrance'],
+      created_at: new Date().toISOString(),
+    };
+
+    registeredInstitutes.push(newInstitute);
+
+    return NextResponse.json(newInstitute, { status: 201 });
+  } catch (err: any) {
+    return NextResponse.json(
+      { detail: err.message || 'Failed to register university.' },
+      { status: 400 }
+    );
+  }
 }

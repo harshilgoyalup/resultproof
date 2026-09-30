@@ -49,6 +49,22 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return response.json();
 }
 
+export async function createInstitute(payload: {
+  name: string;
+  city: string;
+  exams: string[];
+}): Promise<Institute> {
+  const response = await fetch(`${API_BASE_URL}/institutes`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<Institute>(response);
+}
+
 /**
  * Fetch all verified institutes with optional query, exam, and city filters
  */

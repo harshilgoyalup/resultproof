@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { submissionsStore } from '@/app/api/submissions_store';
 
 export async function GET(
   request: Request,
@@ -6,17 +7,23 @@ export async function GET(
 ) {
   const instituteId = params.id;
 
-  // RULE 1: If sample size < 5 approved submissions (e.g. zenith-academy-pune),
-  // return status 'insufficient_data' and hide conversion percentages!
-  if (instituteId === 'zenith-academy-pune') {
+  // Filter approved submissions for this institute
+  const approved = submissionsStore.filter(
+    (s) => s.institute_id === instituteId && s.status === 'approved'
+  );
+
+  const sampleSize = approved.length;
+  const MIN_REQUIRED = 5;
+
+  // RULE 1: If approved submissions < 5, return insufficient data and null conversion rates
+  if (sampleSize < MIN_REQUIRED) {
     return NextResponse.json({
       institute_id: instituteId,
-      institute_name: 'Zenith Academy for Competitive Exams',
-      sample_size: 2,
+      institute_name: instituteId,
+      sample_size: sampleSize,
       has_sufficient_data: false,
       status: 'insufficient_data',
-      message:
-        'Insufficient data: ResultProof requires at least 5 verified student receipts to publish statistics. Current sample size: 2.',
+      message: `Insufficient data: ResultProof requires at least ${MIN_REQUIRED} verified submissions before publishing conversion rates. Current verified count: ${sampleSize}.`,
       conversion_rate_percent: null,
       qualified_count: null,
       average_fee_paid: null,
@@ -26,65 +33,50 @@ export async function GET(
     });
   }
 
-  // Institutes with sufficient sample size (>= 5 approved submissions)
+  // Real stats calculation when >= 5 approved submissions
+  let qualifiedCount = 0;
+  const fees: number[] = [];
+  const examMap: { [exam: string]: { sample_size: number; qualified: number } } = {};
+  const yearMap: { [year: number]: { sample_size: number; qualified: number } } = {};
+
+  for (const sub of approved) {
+    const isQual = !sub.result_value.toLowerCase().includes('not') && !sub.result_value.toLowerCase().includes('fail');
+    if (isQual) qualifiedCount++;
+    if (sub.fee_paid > 0) fees.push(sub.fee_paid);
+
+    if (!examMap[sub.exam]) examMap[sub.exam] = { sample_size: 0, qualified: 0 };
+    examMap[sub.exam].sample_size++;
+    if (isQual) examMap[sub.exam].qualified++;
+
+    if (!yearMap[sub.year]) yearMap[sub.year] = { sample_size: 0, qualified: 0 };
+    yearMap[sub.year].sample_size++;
+    if (isQual) yearMap[sub.year].qualified++;
+  }
+
+  const avgFee = fees.length > 0 ? Math.round(fees.reduce((a, b) => a + b, 0) / fees.length) : 0;
+  const conversionRate = parseFloat(((qualifiedCount / sampleSize) * 100).toFixed(2));
+
   return NextResponse.json({
     institute_id: instituteId,
-    institute_name:
-      instituteId === 'apex-science-academy-kota'
-        ? 'Apex Science Academy'
-        : instituteId === 'pioneer-medical-delhi'
-        ? 'Pioneer Medical Institute'
-        : 'Chronicle IAS Hub',
-    sample_size: 1420,
+    institute_name: instituteId,
+    sample_size: sampleSize,
     has_sufficient_data: true,
     status: 'sufficient',
-    message: 'Verified stats based on 1,420 audited student receipts.',
-    conversion_rate_percent: 24.8,
-    qualified_count: 352,
-    average_fee_paid: 165000,
-    min_fee_paid: 45000,
-    max_fee_paid: 220000,
-    exam_breakdowns: [
-      {
-        exam: 'JEE Advanced',
-        sample_size: 980,
-        qualified_count: 260,
-        conversion_rate_percent: 26.53,
-      },
-      {
-        exam: 'JEE Main',
-        sample_size: 440,
-        qualified_count: 92,
-        conversion_rate_percent: 20.91,
-      },
-    ],
-    yearly_breakdowns: [
-      {
-        year: 2024,
-        sample_size: 820,
-        qualified_count: 215,
-        conversion_rate_percent: 26.22,
-      },
-      {
-        year: 2023,
-        sample_size: 600,
-        qualified_count: 137,
-        conversion_rate_percent: 22.83,
-      },
-    ],
-    course_type_breakdowns: [
-      {
-        course_type: 'Classroom',
-        sample_size: 1100,
-        qualified_count: 310,
-        conversion_rate_percent: 28.18,
-      },
-      {
-        course_type: 'Online',
-        sample_size: 320,
-        qualified_count: 42,
-        conversion_rate_percent: 13.13,
-      },
-    ],
+    message: `Verified stats based on ${sampleSize} audited student submissions.`,
+    conversion_rate_percent: conversionRate,
+    qualified_count: qualifiedCount,
+    average_fee_paid: avgFee,
+    exam_breakdowns: Object.entries(examMap).map(([exam, data]) => ({
+      exam,
+      sample_size: data.sample_size,
+      qualified_count: data.qualified,
+      conversion_rate_percent: parseFloat(((data.qualified / data.sample_size) * 100).toFixed(2)),
+    })),
+    yearly_breakdowns: Object.entries(yearMap).map(([year, data]) => ({
+      year: parseInt(year),
+      sample_size: data.sample_size,
+      qualified_count: data.qualified,
+      conversion_rate_percent: parseFloat(((data.qualified / data.sample_size) * 100).toFixed(2)),
+    })),
   });
 }

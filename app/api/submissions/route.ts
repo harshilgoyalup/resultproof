@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { submissionsStore, StoredSubmission } from '@/app/api/submissions_store';
 
 export async function POST(request: Request) {
   try {
@@ -38,24 +39,52 @@ export async function POST(request: Request) {
       );
     }
 
-    // Generate random submission tracking ID
-    const submissionId = 'sub_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
+    // Generate SHA-256 style hash for duplicate check
+    const fakeReceiptHash = 'hash_' + Math.abs(receipt_file.size * 31 + receipt_file.name.length).toString(16);
+
+    // Duplicate check
+    const isDuplicate = submissionsStore.some(
+      (s) =>
+        s.institute_id === institute_id &&
+        s.exam === exam &&
+        s.year === year &&
+        s.result_value === result_value &&
+        s.receipt_hash === fakeReceiptHash
+    );
+
+    const submissionId = 'sub_' + Math.random().toString(36).substring(2, 11);
+
+    const newSub: StoredSubmission = {
+      id: submissionId,
+      institute_id,
+      exam,
+      year,
+      course_type: course_type || 'Regular',
+      duration_months: 24,
+      is_paid: true,
+      fee_paid,
+      result_value,
+      status: 'pending',
+      is_duplicate_flag: isDuplicate,
+      receipt_hash: fakeReceiptHash,
+      receipt_file_name: receipt_file.name,
+      scorecard_file_name: scorecard_file.name,
+      consent_given_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      reviewed_at: null,
+      reviewed_by: null,
+      reject_reason: null,
+      documents_purged_at: null,
+    };
+
+    submissionsStore.unshift(newSub);
 
     return NextResponse.json(
       {
-        id: submissionId,
-        institute_id,
-        exam,
-        year,
-        course_type,
-        duration_months: 24,
-        is_paid: true,
-        fee_paid,
-        result_value,
-        status: 'pending',
-        is_duplicate_flag: false,
-        created_at: new Date().toISOString(),
-        message: 'Submission received and queued for deterministic audit. Zero student PII stored.',
+        ...newSub,
+        message: isDuplicate
+          ? 'Submission received and flagged for manual audit review (potential duplicate submission detected).'
+          : 'Submission received and queued for deterministic audit. Zero student PII stored.',
       },
       { status: 201 }
     );
